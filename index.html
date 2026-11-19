@@ -2904,10 +2904,11 @@
                             <h4 class="font-bold text-sm sm:text-base text-white">${escapeHTML(s.name)}</h4>${secLabel(s.section) ? `<span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-600 text-slate-200">${escapeHTML(secLabel(s.section))}</span>` : ''}${tag}
                         </div>
                         <div class="text-xs">${room}</div>
+                        <a href="${googleCalUrl(s)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" class="inline-flex items-center gap-1 mt-1 text-[11px] px-2 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 font-semibold">📅 เพิ่มลง Google Calendar</a>
                     </div></div>`;
             };
 
-            let html = '';
+            let html = calendarBarHTML(sessions.length);
             const days = [];
             for (let d = parseISODateLocal(p.start); d <= parseISODateLocal(p.end) && days.length < 63; d = addDays(d, 1)) days.push(formatISODate(d));
             days.forEach(iso => {
@@ -3448,9 +3449,10 @@
         // =====================================================
         // VERSION & PATCH NOTES
         // =====================================================
-        const APP_VERSION = '3.2.1';
+        const APP_VERSION = '3.3.0';
         const CHANGELOG = [
-            { v: '3.2.1', date: '19 พ.ย. 2569', title: 'เลขเวอร์ชันและ Patch notes', items: ['แสดงเลขเวอร์ชันที่ท้ายหน้าเว็บ และปุ่มดู Patch notes', 'ไฟล์ส่งออกบันทึกเลขเวอร์ชันของแอปไว้ด้วย'] },
+            { v: '3.3.0', date: '19 พ.ย. 2569', title: 'ส่งตารางสอบเข้า Google Calendar', items: ['ปุ่ม "เพิ่มลง Google Calendar" ในการ์ดสอบแต่ละวิชา (เปิดหน้าสร้างนัดพร้อมวัน เวลา ห้อง)', 'ส่งออกตารางสอบทั้งหมดเป็นไฟล์ .ics (Midterm + Final) นำเข้า Google/Apple Calendar ได้', 'เลือกการเตือนล่วงหน้าได้: 30 นาที / 1 ชม. / 1 วัน / 1 วัน+1 ชม. / ไม่เตือน', 'ส่งเฉพาะตารางสอบ ไม่รวมคาบเรียน เพื่อไม่ให้ปฏิทินรก'] },
+            { v: '3.2.1', title: 'เลขเวอร์ชันและ Patch notes', items: ['แสดงเลขเวอร์ชันที่ท้ายหน้าเว็บ และปุ่มดู Patch notes', 'ไฟล์ส่งออกบันทึกเลขเวอร์ชันของแอปไว้ด้วย'] },
             { v: '3.2.0', title: 'โหมดวิตเจ็ต', items: ['เปิดด้วย ?widget=1 แสดงคาบที่กำลังเรียน คาบถัดไป ห้อง และเวลานับถอยหลัง (ในสัปดาห์สอบแสดงวิชาสอบ)', 'ป้าย 🚫 งดเรียน / 📝 การบ้านวันนี้ / ⚠ เลยกำหนด', 'รองรับพื้นหลังโปร่งใส ?bg=transparent และปุ่มคัดลอกลิงก์วิตเจ็ต'] },
             { v: '3.1.0', title: 'Memo แยกเป็นแผงของตัวเอง', items: ['ย้าย Memo ออกจากฟอร์มวิชา ไปอยู่เหนือส่วนจัดการตารางเรียน เลือกวิชาแล้วเพิ่ม Memo ได้ทันที', 'สรุป Memo รายสัปดาห์: เลยกำหนด → สัปดาห์นี้ → สัปดาห์หน้า → ถัดไป → ไม่มีกำหนด → ติดตลอด', 'แจ้งหยุดเลือกจากวันที่คาบถัดไปของวิชานั้นได้เลย'] },
             { v: '3.0.0', title: 'หน่วยกิต / Memo / เกรดคาดการณ์', items: ['หน่วยกิต 1–6 และหน่วยกิตรวมใต้ตารางประจำสัปดาห์', 'Memo 3 แบบ: แจ้งหยุด (คาบเป็นสีเทา) การบ้าน แจ้งเตือน (เฉพาะสัปดาห์/ติดตลอด)', 'แท็บเกรดใหม่: น้ำหนักคะแนน เกณฑ์ตัดเกรดแก้ได้ คาดการณ์เกรด และ GPA = Σ(เกรด×หน่วยกิต) ÷ Σหน่วยกิต'] },
@@ -3474,6 +3476,72 @@
         }
         function closePatchNotes() { const m = document.getElementById('patch-modal'); m.classList.add('hidden'); m.classList.remove('flex'); }
         (function () { const b = document.getElementById('app-version-btn'); if (b) b.textContent = 'v' + APP_VERSION + ' • Patch notes'; })();
+    
+        // =====================================================
+        // v3.3: EXAM -> CALENDAR (.ics + Google Calendar link)
+        // =====================================================
+        let icsReminder = '1440,60';
+        const ICS_REMINDERS = [['none', 'ไม่เตือน'], ['30', 'ก่อน 30 นาที'], ['60', 'ก่อน 1 ชั่วโมง'], ['1440', 'ก่อน 1 วัน'], ['1440,60', 'ก่อน 1 วัน + 1 ชั่วโมง']];
+
+        function calDt(dateIso, time) { return dateIso.replace(/-/g, '') + 'T' + time.replace(':', '') + '00'; }
+        function examTitle(x) {
+            return `[${EXAM_TYPES[x.examType].short}] ${x.code ? x.code + ' ' : ''}${x.name}${secLabel(x.section) ? ' ' + secLabel(x.section) : ''}`;
+        }
+        function examDetails(x) {
+            return [EXAM_TYPES[x.examType].label, secLabel(x.section), x.teacher ? 'ผู้สอน: ' + x.teacher : ''].filter(Boolean).join(' • ');
+        }
+        function googleCalUrl(x) {
+            const q = new URLSearchParams({ action: 'TEMPLATE', text: examTitle(x), dates: `${calDt(x.dateIso, x.start)}/${calDt(x.dateIso, x.end)}`, ctz: 'Asia/Bangkok', details: examDetails(x) });
+            if (!x.roomMissing && x.room) q.set('location', x.room);
+            return 'https://calendar.google.com/calendar/render?' + q.toString();
+        }
+        function calendarBarHTML(count) {
+            if (!count) return '';
+            return `<div class="rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 flex flex-col sm:flex-row sm:items-center gap-2.5">
+                <div class="text-xs text-slate-300 flex-1"><b class="text-sky-300">📅 ส่งตารางสอบเข้าปฏิทิน</b><br><span class="text-[11px] text-slate-400">ส่งออก .ics ครั้งเดียวได้ทุกวิชา (Midterm + Final) หรือกด "เพิ่มลง Google Calendar" ที่การ์ดแต่ละวิชา</span></div>
+                <select onchange="icsReminder = this.value" class="bg-slate-900 border border-slate-600 rounded-lg px-2.5 py-2 text-xs text-white outline-none">
+                    ${ICS_REMINDERS.map(([v, l]) => `<option value="${v}" ${icsReminder === v ? 'selected' : ''}>เตือน: ${l}</option>`).join('')}
+                </select>
+                <button type="button" onclick="exportExamICS()" class="px-3.5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold active:scale-95 transition-all">⬇ ส่งออก .ics</button></div>`;
+        }
+
+        const icsEsc = t => String(t).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+        function icsFold(line) {
+            const enc = new TextEncoder();
+            let out = '', cur = '', bytes = 0;
+            for (const ch of line) {
+                const b = enc.encode(ch).length;
+                if (bytes + b > 73) { out += cur + '\r\n '; cur = ch; bytes = b + 1; } else { cur += ch; bytes += b; }
+            }
+            return out + cur;
+        }
+        function exportExamICS() {
+            const list = getExamSessions().sort((a, b) => (a.dateIso + a.start).localeCompare(b.dateIso + b.start));
+            if (!list.length) { showToast('ยังไม่มีวิชาที่ระบุวัน-เวลาสอบ', 'error'); return; }
+            const alarms = icsReminder === 'none' ? [] : icsReminder.split(',').map(Number);
+            const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+            const seq = Math.floor(Date.now() / 60000);
+            const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Smart Class Schedule//Exam//TH', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:ตารางสอบ', 'X-WR-TIMEZONE:Asia/Bangkok',
+                'BEGIN:VTIMEZONE', 'TZID:Asia/Bangkok', 'BEGIN:STANDARD', 'DTSTART:19700101T000000', 'TZOFFSETFROM:+0700', 'TZOFFSETTO:+0700', 'TZNAME:ICT', 'END:STANDARD', 'END:VTIMEZONE'];
+            list.forEach(x => {
+                L.push('BEGIN:VEVENT', `UID:${x.courseId}-${x.examType}@smart-class-schedule`, `DTSTAMP:${stamp}`, `SEQUENCE:${seq}`,
+                    `DTSTART;TZID=Asia/Bangkok:${calDt(x.dateIso, x.start)}`, `DTEND;TZID=Asia/Bangkok:${calDt(x.dateIso, x.end)}`,
+                    `SUMMARY:${icsEsc(examTitle(x))}`, `DESCRIPTION:${icsEsc(examDetails(x))}`);
+                if (!x.roomMissing && x.room) L.push(`LOCATION:${icsEsc(x.room)}`);
+                alarms.forEach(m => L.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsEsc(examTitle(x))}`, `TRIGGER:-PT${m}M`, 'END:VALARM'));
+                L.push('END:VEVENT');
+            });
+            L.push('END:VCALENDAR');
+            const blob = new Blob([L.map(icsFold).join('\r\n') + '\r\n'], { type: 'text/calendar;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `exam_schedule_${new Date().toISOString().slice(0, 10)}.ics`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            const noRoom = list.filter(x => x.roomMissing).length;
+            showToast(`ส่งออก ${list.length} รายการสอบแล้ว${noRoom ? ` (${noRoom} วิชายังไม่มีห้อง)` : ''}`, 'success');
+        }
     </script>
 </body>
 </html>
