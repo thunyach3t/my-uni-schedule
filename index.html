@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>if (/[?&]widget\b|#widget/.test(location.search + location.hash)) document.documentElement.classList.add('widget-mode');</script>
     <title>ตารางเรียนอัจฉริยะ (Smart Class Schedule)</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -73,9 +74,31 @@
             border: 2px solid #475569;
             border-radius: 0.65rem;
         }
+
+        /* ===== Widget mode (?widget=1) ===== */
+        #widget-root { display: none; }
+        html.widget-mode body > *:not(#widget-root):not(script) { display: none !important; }
+        html.widget-mode body { padding: 0 !important; min-height: 0 !important; display: block !important; }
+        html.widget-mode #widget-root { display: block; }
+        html.widget-mode.wg-transparent body, html.widget-mode.wg-transparent { background: transparent !important; }
+        .wg { padding: clamp(8px, 3vw, 16px); display: flex; flex-direction: column; gap: clamp(6px, 2vw, 10px); }
+        .wg-top { display: flex; align-items: baseline; gap: 8px; }
+        .wg-clock { font-family: monospace; font-weight: 800; font-size: clamp(18px, 7vw, 30px); color: #fbbf24; line-height: 1; }
+        .wg-date { font-size: clamp(10px, 3vw, 13px); color: #94a3b8; flex: 1; }
+        .wg-badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+        .wg-card { border-radius: 14px; padding: clamp(8px, 2.6vw, 12px) clamp(10px, 3vw, 14px); border: 1px solid rgba(148,163,184,.25); }
+        .wg-label { font-size: clamp(10px, 2.8vw, 12px); font-weight: 700; margin-bottom: 3px; }
+        .wg-title { font-weight: 700; color: #fff; font-size: clamp(13px, 4.2vw, 18px); line-height: 1.25; }
+        .wg-sub { font-size: clamp(10px, 3vw, 13px); color: #cbd5e1; margin-top: 3px; }
+        .wg-bar { height: 6px; border-radius: 99px; background: rgba(148,163,184,.25); overflow: hidden; margin-top: 7px; }
+        .wg-bar > div { height: 100%; background: #34d399; }
+        .wg-chip { font-size: 10px; padding: 2px 8px; border-radius: 8px; border: 1px solid rgba(148,163,184,.3); color: #e2e8f0; }
+        .wg-link { font-size: 10px; color: #64748b; text-align: right; text-decoration: none; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col justify-between text-slate-100 selection:bg-amber-500/30 selection:text-amber-200">
+
+    <div id="widget-root"></div>
 
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed bottom-20 right-5 z-[110] flex flex-col gap-2 pointer-events-none"></div>
@@ -181,6 +204,9 @@
             </div>
         </section>
 
+        <!-- Memo Panel (separate from course management) -->
+        <section id="memo-panel" class="bg-slate-800/70 rounded-2xl border border-slate-700/60 shadow-lg"></section>
+
         <!-- Action Bar & Schedule Tools -->
         <section class="bg-slate-800/70 rounded-2xl p-4 sm:p-5 border border-slate-700/60 shadow-lg flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
             <div>
@@ -279,6 +305,7 @@
                 <div id="view-weekly-container" class="hidden">
                     <!-- Filled by JS -->
                 </div>
+                <div id="credit-summary" class="hidden mt-4"></div>
             </div>
         </section>
 
@@ -295,14 +322,19 @@
             </div>
         </section>
 
+        <!-- Grade Page -->
+        <section id="page-grade" class="hidden bg-slate-800/80 rounded-2xl border border-slate-700/80 overflow-hidden shadow-lg">
+            <div id="grade-page-body" class="p-4 sm:p-5 space-y-4"></div>
+        </section>
     </main>
 
 
     <!-- Bottom Navigation: Class / Exam -->
     <nav class="fixed bottom-0 inset-x-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 pb-[env(safe-area-inset-bottom)]">
-        <div class="max-w-7xl mx-auto grid grid-cols-2 gap-2 p-2">
+        <div class="max-w-7xl mx-auto grid grid-cols-3 gap-2 p-2">
             <button id="nav-class" onclick="setPageMode('class')"><i class="fa-solid fa-table-cells-large"></i> ตารางเรียน</button>
             <button id="nav-exam" onclick="setPageMode('exam')"><i class="fa-solid fa-file-pen"></i> ตารางสอบ <span id="nav-exam-dot" class="hidden w-2 h-2 rounded-full bg-orange-400 animate-pulse"></span></button>
+            <button id="nav-grade" onclick="setPageMode('grade')"><i class="fa-solid fa-chart-line"></i> เกรด</button>
         </div>
     </nav>
 
@@ -345,9 +377,36 @@
         </div>
     </div>
 
+    <!-- Modal: Grade scheme -->
+    <div id="grade-modal" class="fixed inset-0 z-[62] hidden items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            <div class="px-5 py-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between gap-3">
+                <h3 id="grade-modal-title" class="font-bold text-base text-white truncate">คะแนนและเกณฑ์เกรด</h3>
+                <button onclick="closeGradeModal()" class="text-slate-400 hover:text-white w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-700 shrink-0"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="grade-modal-body" class="p-5 space-y-4 overflow-y-auto custom-scrollbar text-sm"></div>
+            <div class="px-5 py-3 bg-slate-800/60 border-t border-slate-700 flex justify-end gap-2">
+                <button type="button" onclick="closeGradeModal()" class="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold">ยกเลิก</button>
+                <button type="button" onclick="saveGradeModal()" class="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold">บันทึก</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Patch notes -->
+    <div id="patch-modal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-slate-950/85 backdrop-blur-sm p-3 sm:p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-5 py-4 bg-slate-800/90 border-b border-slate-700 flex items-center justify-between">
+                <h3 class="font-bold text-base text-white">🧾 Patch notes</h3>
+                <button onclick="closePatchNotes()" class="text-slate-400 hover:text-white w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-700"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="patch-body" class="p-5 space-y-4 overflow-y-auto custom-scrollbar text-sm"></div>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="bg-slate-950 text-slate-400 text-xs py-4 border-t border-slate-800 mt-8">
         <div class="max-w-7xl mx-auto px-4 text-center space-y-1">
+            <p><button type="button" onclick="openPatchNotes()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-semibold" id="app-version-btn">v-</button> <button type="button" onclick="copyWidgetLink()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium">📱 คัดลอกลิงก์โหมดวิตเจ็ต</button></p>
             <p>ตารางเรียนอัจฉริยะ (Smart Class Schedule) • ระบบจัดตารางเรียนรายชั่วโมง วิชาปฏิบัติการ Lab รายสัปดาห์ และแจ้งเตือนคาบเรียนเรียลไทม์</p>
         </div>
     </footer>
@@ -368,15 +427,26 @@
                 <input type="hidden" id="course-id">
 
                 <!-- Basic Course Identity -->
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div>
                         <label class="block text-xs font-medium text-slate-300 mb-1">รหัสวิชา</label>
                         <input type="text" id="course-code" placeholder="เช่น CS101" class="w-full bg-slate-800 border border-slate-700 focus:border-amber-500 rounded-xl px-3 py-2.5 text-white font-mono outline-none">
                     </div>
-                    <div class="sm:col-span-2">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">ตอนเรียน / Sec</label>
+                        <input type="text" id="course-section" maxlength="20" placeholder="เช่น 1 หรือ 800" class="w-full bg-slate-800 border border-slate-700 focus:border-amber-500 rounded-xl px-3 py-2.5 text-white font-mono outline-none transition-colors">
+                    </div>
+                    <div class="col-span-2">
                         <label class="block text-xs font-medium text-slate-300 mb-1">ชื่อรายวิชา <span class="text-rose-400">*</span></label>
                         <input type="text" id="course-name" required placeholder="เช่น ปฏิบัติการฟิสิกส์ หรือ คณิตศาสตร์วิศวกรรม" class="w-full bg-slate-800 border border-slate-700 focus:border-amber-500 rounded-xl px-3 py-2.5 text-white outline-none">
                     </div>
+                </div>
+
+                <!-- Credits -->
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1.5">หน่วยกิต <span class="text-slate-500 font-normal">(1–6 ไม่บังคับ • แตะซ้ำเพื่อยกเลิก)</span></label>
+                    <input type="hidden" id="course-credit">
+                    <div id="credit-chips" class="flex gap-2 flex-wrap"></div>
                 </div>
 
                 <!-- Primary Day, Time & Teacher -->
@@ -722,6 +792,7 @@
 
         // --- INITIALIZATION ---
         window.onload = function () {
+            if (WIDGET_MODE) { startWidgetMode(); return; }
             loadAllFromStorage();
             syncPreferenceControls();
             autoRoute();
@@ -840,6 +911,12 @@
             }
         }
 
+        // "Sec 1" / "sec.1" / "1"  ->  "Sec 1"
+        function secLabel(v) {
+            const t = String(v || '').trim().replace(/^sec(tion)?\.?\s*/i, '');
+            return t ? 'Sec ' + t : '';
+        }
+
         function timeToMinutes(timeStr) {
             const [h, m] = timeStr.split(':').map(Number);
             return h * 60 + m;
@@ -907,7 +984,7 @@
         function getExpandedSessions(ctxIso) {
             const out = [];
             scheduleData.forEach(course => {
-                const base = { courseId: course.id, code: course.code, name: course.name, teacher: course.teacher, colorId: course.colorId, specialType: course.specialType || 'normal' };
+                const base = { courseId: course.id, section: course.section || '', code: course.code, name: course.name, teacher: course.teacher, colorId: course.colorId, specialType: course.specialType || 'normal' };
                 const mainDate = dateOfWeekday(ctxIso, course.day);
                 const main = { ...base, sessionKey: `${course.id}_main`, day: Number(course.day), start: course.start, end: course.end, dateIso: mainDate,
                     room: course.room || 'ไม่ระบุห้องเรียน', labBadgeText: '', isLabActiveToday: false, isInactive: false, inactiveLabel: '',
@@ -928,7 +1005,7 @@
                     });
                 }
             });
-            return out;
+            return applyMemosToSessions(out);
         }
 
         // --- TIME SIMULATOR CONTROLS ---
@@ -1049,7 +1126,11 @@
 
                 renderDayPills(ctx.day);
                 renderBottomNav();
-                if (pageMode === 'exam') {
+                if (forceTableRender || lastMemoPanelDate !== ctx.isoDate) { renderMemoPanel(ctx); lastMemoPanelDate = ctx.isoDate; }
+                renderCreditSummary();
+                if (pageMode === 'grade') {
+                    renderGradePage();
+                } else if (pageMode === 'exam') {
                     renderExamPage(ctx, nowTotalSecs);
                 } else if (viewMode === 'daily') {
                     renderDailyTimeline(ctx.day, ctx.isoDate, allSessions, currentSession, nextSession, nowTotalSecs);
@@ -1109,7 +1190,7 @@
                             </div>
                             <div class="flex items-center gap-2 truncate">
                                 <i class="fa-solid fa-user-tie text-sky-400"></i>
-                                <span class="truncate">${escapeHTML(currentSession.teacher || 'ไม่ระบุผู้สอน')}</span>
+                                <span class="truncate">${escapeHTML(currentSession.teacher || 'ไม่ระบุผู้สอน')}${secLabel(currentSession.section) ? ' • ' + escapeHTML(secLabel(currentSession.section)) : ''}</span>
                             </div>
                         </div>
 
@@ -1404,6 +1485,7 @@
                                 <div class="flex items-center gap-2 flex-wrap">
                                     ${sess.code ? `<span class="font-mono text-xs font-bold px-2 py-0.5 rounded" style="background-color: ${hexToRgba(colObj.hex, 0.2)}; color: ${colObj.hex}; border: 1px solid ${hexToRgba(colObj.hex, 0.4)}">${escapeHTML(sess.code)}</span>` : ''}
                                     <h4 class="font-bold text-sm sm:text-base text-white group-hover:text-amber-300 transition-colors">${escapeHTML(sess.name)}</h4>
+                                    ${secLabel(sess.section) ? `<span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-600 text-slate-200">${escapeHTML(secLabel(sess.section))}</span>` : ''}
                                     <span class="text-[10px] px-2 py-0.5 rounded-full text-slate-300 bg-slate-800 border border-slate-700">${escapeHTML(colObj.label)}</span>
                                     ${specialBadge}
                                     ${statusTag}
@@ -1412,6 +1494,7 @@
                                     <span class="text-slate-200 font-medium"><i class="fa-solid fa-location-dot text-rose-400 mr-1"></i>${escapeHTML(sess.room)}</span>
                                     <span><i class="fa-solid fa-user-tie text-sky-400/80 mr-1"></i>${escapeHTML(sess.teacher || 'ไม่ระบุผู้สอน')}</span>
                                 </div>
+                                ${memoChipsHTML(sess)}
                             </div>
                         </div>
 
@@ -1562,6 +1645,8 @@
                         extraClass = "opacity-45 hover:opacity-85";
                     }
 
+                    const secTag = secLabel(sess.section) ? `<span class="text-[9px] px-1 rounded bg-slate-900/60 text-slate-100 font-bold font-mono shrink-0">${escapeHTML(secLabel(sess.section))}</span>` : '';
+                    const memoTag = (sess.memoNotes && sess.memoNotes.length) ? `<span class="text-[10px] shrink-0" title="${escapeHTML(sess.memoNotes.map(n => n.text).join(' / '))}">📌</span>` : '';
                     const labTag = sess.specialType === 'lab'
                         ? `<span class="text-[9px] px-1 rounded bg-sky-500/30 text-sky-200 font-bold shrink-0">LAB</span>`
                         : '';
@@ -1576,13 +1661,13 @@
                         <div onclick="openCourseModal('${sess.courseId}')"
                              class="absolute z-10 cursor-pointer rounded-lg ${isFit ? 'p-1 sm:p-1.5' : 'p-2'} transition-all flex flex-col justify-between overflow-hidden ${extraClass}"
                              style="${posStyle} ${borderStyle} border-left: 4px solid ${colObj.hex};"
-                             title="${escapeHTML(sess.code ? sess.code + ' ' : '')}${escapeHTML(sess.name)} (${sess.start}-${sess.end}) ห้อง: ${escapeHTML(sess.room)}">
+                             title="${escapeHTML(sess.code ? sess.code + ' ' : '')}${escapeHTML(sess.name)}${secLabel(sess.section) ? ' ' + escapeHTML(secLabel(sess.section)) : ''} (${sess.start}-${sess.end}) ห้อง: ${escapeHTML(sess.room)}">
                             <div class="min-h-0">
                                 <div class="flex items-center justify-between gap-1">
                                     <span class="font-mono font-bold truncate" style="color: ${colObj.hex}; font-size: ${isFit ? '10px' : '11px'};">
                                         ${escapeHTML(sess.code || sess.start)}
                                     </span>
-                                    <div class="flex items-center gap-1 shrink-0">${labTag}${miniStatus}</div>
+                                    <div class="flex items-center gap-1 shrink-0">${memoTag}${labTag}${miniStatus}${secTag}</div>
                                 </div>
                                 <div class="font-bold text-white leading-tight mt-0.5 ${isFit ? 'line-clamp-2 text-[10px] sm:text-xs' : 'line-clamp-2 text-xs'}">
                                     ${escapeHTML(sess.name)}
@@ -2032,6 +2117,8 @@
                 document.getElementById('course-start').value = course.start;
                 document.getElementById('course-end').value = course.end;
                 document.getElementById('course-code').value = course.code || '';
+                document.getElementById('course-section').value = course.section || '';
+                document.getElementById('course-credit').value = course.credit || '';
                 document.getElementById('course-name').value = course.name;
                 document.getElementById('course-room').value = course.room || '';
                 document.getElementById('course-teacher').value = course.teacher || '';
@@ -2062,6 +2149,7 @@
             }
 
             renderExamSection();
+            renderCreditChips();
             syncSpecialModeUI();
             modal.classList.remove('hidden');
             modal.classList.add('flex');
@@ -2081,6 +2169,7 @@
             const start = document.getElementById('course-start').value;
             const end = document.getElementById('course-end').value;
             const code = document.getElementById('course-code').value.trim();
+            const section = document.getElementById('course-section').value.trim().slice(0, 20);
             const name = document.getElementById('course-name').value.trim();
             const room = document.getElementById('course-room').value.trim();
             const teacher = document.getElementById('course-teacher').value.trim();
@@ -2141,6 +2230,10 @@
             if (examClash) { showToast('บันทึกไม่ได้: ' + examClash, 'error'); return; }
 
             const coursePayload = {
+                section,
+                credit: sanitizeCredit(document.getElementById('course-credit').value),
+                memos: (scheduleData.find(x => x.id === id) || {}).memos || [],
+                grading: (scheduleData.find(x => x.id === id) || {}).grading || emptyGrading(),
                 exams: examsPayload,
                 id: id || ('c_' + Date.now()),
                 day,
@@ -2325,6 +2418,7 @@
         function exportScheduleJSON() {
             const payload = {
                 version: 4,
+                appVersion: APP_VERSION,
                 examPeriods,
                 exportedAt: new Date().toISOString(),
                 colorCategories,
@@ -2350,9 +2444,9 @@
                 try {
                     const parsed = JSON.parse(e.target.result);
                     if (Array.isArray(parsed)) {
-                        scheduleData = parsed.map(sanitizeCourse).filter(Boolean);
+                        scheduleData = dedupeCourseIds(parsed.map(sanitizeCourse).filter(Boolean));
                     } else if (parsed && Array.isArray(parsed.scheduleData)) {
-                        scheduleData = parsed.scheduleData.map(sanitizeCourse).filter(Boolean);
+                        scheduleData = dedupeCourseIds(parsed.scheduleData.map(sanitizeCourse).filter(Boolean));
                         if (Array.isArray(parsed.colorCategories) && parsed.colorCategories.length > 0) {
                             colorCategories = parsed.colorCategories.map(sanitizeColor).filter(Boolean);
                             if (colorCategories.length === 0) colorCategories = JSON.parse(JSON.stringify(DEFAULT_COLOR_CATEGORIES));
@@ -2473,14 +2567,22 @@
             return {
                 id: ID_RE.test(c.id) ? c.id : 'c_' + Date.now() + Math.random().toString(36).slice(2, 7),
                 day, start: c.start, end: c.end,
-                code: str(c.code, 30).trim(), name, room: str(c.room, 80).trim(), teacher: str(c.teacher, 80).trim(),
+                code: str(c.code, 30).trim(), section: str(c.section, 20).trim(), name, room: str(c.room, 80).trim(), teacher: str(c.teacher, 80).trim(),
                 colorId: ID_RE.test(c.colorId) ? c.colorId : '',
                 specialType: ['lab', 'multi'].includes(c.specialType) ? c.specialType : 'normal',
                 labWeeks: Array.isArray(c.labWeeks) ? c.labWeeks.slice(0, 25).map(w => ({ date: isValidISO(w && w.date) ? w.date : '', room: str(w && w.room, 80).trim() })) : [],
                 fallbackRoom: str(c.fallbackRoom, 80).trim(),
                 extraSessions: Array.isArray(c.extraSessions) ? c.extraSessions.slice(0, 20).filter(x => x && TIME_RE.test(x.start) && TIME_RE.test(x.end) && timeToMinutes(x.end) > timeToMinutes(x.start) && Number.isInteger(Number(x.day)) && Number(x.day) >= 0 && Number(x.day) <= 6).map(x => ({ day: Number(x.day), start: x.start, end: x.end, room: str(x.room, 80).trim() })) : [],
-                exams: cloneExams(c.exams)
+                exams: cloneExams(c.exams), credit: sanitizeCredit(c.credit), memos: sanitizeMemos(c.memos), grading: sanitizeGrading(c.grading)
             };
+        }
+        function dedupeCourseIds(list) {
+            const seen = new Set();
+            return list.map(c => {
+                if (seen.has(c.id)) c.id = 'c_' + Date.now() + Math.random().toString(36).slice(2, 8);
+                seen.add(c.id);
+                return c;
+            });
         }
         function sanitizeColor(c) {
             if (!c || !ID_RE.test(c.id)) return null;
@@ -2498,7 +2600,7 @@
         function postLoadSanitize() {
             const cols = (Array.isArray(colorCategories) ? colorCategories : []).map(sanitizeColor).filter(Boolean);
             colorCategories = cols.length ? cols : JSON.parse(JSON.stringify(DEFAULT_COLOR_CATEGORIES));
-            scheduleData = scheduleData.map(sanitizeCourse).filter(Boolean);
+            scheduleData = dedupeCourseIds(scheduleData.map(sanitizeCourse).filter(Boolean));
             try { examPeriods = sanitizeExamPeriods(JSON.parse(localStorage.getItem(STORAGE_EXAMS_KEY) || 'null')); } catch (e) { examPeriods = sanitizeExamPeriods(null); }
             if (reconcileExams()) saveScheduleToStorage();
         }
@@ -2531,7 +2633,7 @@
                 const e = c.exams && c.exams[t];
                 if (!e || !e.date || !e.start || !e.end || !dateInPeriod(t, e.date)) return;
                 out.push({ sessionKey: `${c.id}_exam_${t}`, courseId: c.id, examType: t, dateIso: e.date, day: parseISODateLocal(e.date).getDay(),
-                    start: e.start, end: e.end, code: c.code, name: c.name, teacher: c.teacher, colorId: c.colorId, specialType: 'exam',
+                    start: e.start, end: e.end, code: c.code, section: c.section || '', name: c.name, teacher: c.teacher, colorId: c.colorId, specialType: 'exam',
                     room: e.room || 'ยังไม่ระบุห้องสอบ', roomMissing: !e.room, labBadgeText: EXAM_TYPES[t].label, isInactive: false, sessionLabel: '' });
             }));
             return out;
@@ -2722,6 +2824,7 @@
             pageMode = mode;
             document.getElementById('page-class').classList.toggle('hidden', mode !== 'class');
             document.getElementById('page-exam').classList.toggle('hidden', mode !== 'exam');
+            document.getElementById('page-grade').classList.toggle('hidden', mode !== 'grade');
             updateTick(true);
         }
         // Exam week -> exam page (type auto-selected). Otherwise -> class page.
@@ -2733,9 +2836,11 @@
         }
         function selectExamType(t) { examViewType = t; updateTick(true); }
         function renderBottomNav() {
-            const base = 'py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ';
-            document.getElementById('nav-class').className = base + (pageMode === 'class' ? 'bg-slate-800 text-amber-400 border border-slate-700' : 'text-slate-400 hover:text-slate-200');
-            document.getElementById('nav-exam').className = base + (pageMode === 'exam' ? 'bg-slate-800 text-orange-400 border border-slate-700' : 'text-slate-400 hover:text-slate-200');
+            const base = 'py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 sm:gap-2 ';
+            const on = (m, c) => base + (pageMode === m ? 'bg-slate-800 border border-slate-700 ' + c : 'text-slate-400 hover:text-slate-200');
+            document.getElementById('nav-class').className = on('class', 'text-amber-400');
+            document.getElementById('nav-exam').className = on('exam', 'text-orange-400');
+            document.getElementById('nav-grade').className = on('grade', 'text-emerald-400');
             document.getElementById('nav-exam-dot').classList.toggle('hidden', !currentExamWeek);
         }
         function examWeekBannerHTML() {
@@ -2796,7 +2901,7 @@
                     <div class="space-y-1 min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
                             ${s.code ? `<span class="font-mono text-xs font-bold px-2 py-0.5 rounded" style="background-color:${hexToRgba(col.hex, 0.2)};color:${col.hex};border:1px solid ${hexToRgba(col.hex, 0.4)}">${escapeHTML(s.code)}</span>` : ''}
-                            <h4 class="font-bold text-sm sm:text-base text-white">${escapeHTML(s.name)}</h4>${tag}
+                            <h4 class="font-bold text-sm sm:text-base text-white">${escapeHTML(s.name)}</h4>${secLabel(s.section) ? `<span class="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-800 border border-slate-600 text-slate-200">${escapeHTML(secLabel(s.section))}</span>` : ''}${tag}
                         </div>
                         <div class="text-xs">${room}</div>
                     </div></div>`;
@@ -2827,6 +2932,548 @@
             }
             list.innerHTML = html;
         }
+    
+        // =====================================================
+        // v5: CREDITS, MEMOS, GRADE PROJECTION
+        // =====================================================
+        const MEMO_TYPES = {
+            cancel:   { label: 'แจ้งหยุด',  icon: '🚫', color: '#f87171' },
+            homework: { label: 'การบ้าน',   icon: '📝', color: '#38bdf8' },
+            notice:   { label: 'แจ้งเตือน', icon: '📌', color: '#fbbf24' }
+        };
+        const GRADE_ORDER = ['A', 'B+', 'B', 'C+', 'C', 'D+', 'D'];
+        const GRADE_POINTS = { 'A': 4, 'B+': 3.5, 'B': 3, 'C+': 2.5, 'C': 2, 'D+': 1.5, 'D': 1, 'F': 0 };
+        const DEFAULT_CUTOFFS = { 'A': 80, 'B+': 75, 'B': 70, 'C+': 65, 'C': 60, 'D+': 55, 'D': 50 };
+        const GRADE_PRESETS = ['Midterm', 'Final', 'เก็บคะแนน', 'งาน/รายงาน', 'Lab', 'โปรเจกต์'];
+                let gradeModalCourseId = null;
+        let tempGrading = null;
+
+        const newId = p => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const fmtNum = n => String(Math.round(n * 100) / 100);
+        function weekStartIso(iso) { const d = parseISODateLocal(iso); return d ? formatISODate(mondayOf(d)) : ''; }
+        function courseLabel(c) { return c.code ? c.code : c.name; }
+
+        // ---------- sanitizers ----------
+        function sanitizeCredit(v) { const n = Number(v); return (v !== '' && v != null && Number.isInteger(n) && n >= 1 && n <= 6) ? n : ''; }
+        function sanitizeMemos(a) {
+            if (!Array.isArray(a)) return [];
+            return a.slice(0, 60).map(m => {
+                if (!m || !MEMO_TYPES[m.type]) return null;
+                return { id: ID_RE.test(m.id) ? m.id : newId('m'), type: m.type, text: str(m.text, 200).trim(),
+                    date: isValidISO(m.date) ? m.date : '', scope: m.scope === 'always' ? 'always' : 'week', done: !!m.done };
+            }).filter(Boolean);
+        }
+        function emptyGrading() { return { components: [], cutoffs: { ...DEFAULT_CUTOFFS } }; }
+        function sanitizeGrading(g) {
+            g = g || {};
+            const components = Array.isArray(g.components) ? g.components.slice(0, 20).map(c => {
+                if (!c) return null;
+                const w = Number(c.weight);
+                if (!(w > 0 && w <= 100)) return null;
+                let sc = '';
+                if (c.score !== '' && c.score != null && Number.isFinite(Number(c.score))) sc = Math.min(Math.max(Number(c.score), 0), w);
+                return { id: ID_RE.test(c.id) ? c.id : newId('g'), name: str(c.name, 40).trim() || 'ส่วนคะแนน', weight: Math.round(w * 100) / 100, score: sc === '' ? '' : Math.round(sc * 100) / 100 };
+            }).filter(Boolean) : [];
+            let cutoffs = { ...DEFAULT_CUTOFFS };
+            const src = g.cutoffs || {};
+            const vals = GRADE_ORDER.map(k => Number(src[k]));
+            const ok = vals.every((v, i) => Number.isFinite(v) && v >= 0 && v <= 100 && (i === 0 || v < vals[i - 1]));
+            if (ok) GRADE_ORDER.forEach((k, i) => cutoffs[k] = vals[i]);
+            return { components, cutoffs };
+        }
+
+        // ---------- credits ----------
+        function setCredit(n) {
+            const el = document.getElementById('course-credit');
+            el.value = String(el.value) === String(n) ? '' : String(n);
+            renderCreditChips();
+        }
+        function renderCreditChips() {
+            const cur = Number(document.getElementById('course-credit').value) || 0;
+            document.getElementById('credit-chips').innerHTML = [1, 2, 3, 4, 5, 6].map(n =>
+                `<button type="button" onclick="setCredit(${n})" class="w-11 h-11 rounded-xl text-sm font-bold border transition-all active:scale-95 ${cur === n ? 'bg-amber-500 border-amber-400 text-slate-950 shadow' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-amber-500'}">${n}</button>`).join('');
+        }
+        function renderCreditSummary() {
+            const box = document.getElementById('credit-summary');
+            if (pageMode !== 'class' || viewMode !== 'weekly' || !scheduleData.length) { box.classList.add('hidden'); return; }
+            const withC = scheduleData.filter(c => c.credit);
+            const total = withC.reduce((a, c) => a + c.credit, 0);
+            const missing = scheduleData.length - withC.length;
+            box.classList.remove('hidden');
+            box.innerHTML = `<div class="bg-slate-900/70 border border-slate-700/70 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/40 flex flex-col items-center justify-center"><span class="text-xl font-extrabold text-amber-300 leading-none">${total}</span><span class="text-[9px] text-amber-200/80">หน่วยกิต</span></div>
+                    <div><div class="text-sm font-bold text-white">หน่วยกิตรวมเทอมนี้</div>
+                    <div class="text-[11px] text-slate-400">${withC.length} จาก ${scheduleData.length} วิชา${missing ? ` • <span class="text-amber-300">ยังไม่ใส่หน่วยกิต ${missing} วิชา</span>` : ''}</div></div>
+                </div>
+                <div class="flex flex-wrap gap-1.5">${withC.map(c => `<span class="text-[11px] px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-200"><span class="font-mono" style="color:${getColorObj(c.colorId).hex}">${escapeHTML(courseLabel(c))}</span> <b>${c.credit}</b></span>`).join('')}</div>
+            </div>`;
+        }
+
+        // ---------- memos ----------
+        function applyMemosToSessions(list) {
+            list.forEach(sess => {
+                const c = scheduleData.find(x => x.id === sess.courseId);
+                if (!c) return;
+                const memos = c.memos || [];
+                const cancel = memos.find(m => m.type === 'cancel' && m.date === sess.dateIso);
+                if (cancel) { sess.isInactive = true; sess.inactiveLabel = 'งดเรียน'; sess.cancelNote = cancel.text || 'อาจารย์แจ้งหยุด'; }
+                const wk = weekStartIso(sess.dateIso);
+                sess.memoNotes = memos.filter(m => (m.type === 'notice' && (m.scope === 'always' || weekStartIso(m.date) === wk)) || (m.type === 'homework' && !m.done));
+            });
+            return list;
+        }
+        function memoChip(type, text, extra) {
+            const t = MEMO_TYPES[type];
+            return `<span class="text-[11px] px-2 py-0.5 rounded-lg border" style="color:${t.color};border-color:${hexToRgba(t.color, 0.45)};background-color:${hexToRgba(t.color, 0.12)}">${t.icon} ${escapeHTML(text)}${extra ? ' <span class="opacity-70">' + extra + '</span>' : ''}</span>`;
+        }
+        function memoChipsHTML(sess) {
+            const chips = [];
+            if (sess.cancelNote !== undefined) chips.push(memoChip('cancel', sess.cancelNote));
+            (sess.memoNotes || []).forEach(m => chips.push(memoChip(m.type, m.text, m.type === 'homework' && m.date ? 'ส่ง ' + formatThaiShortDate(m.date) : '')));
+            return chips.length ? `<div class="flex flex-wrap gap-1.5 pt-1">${chips.join('')}</div>` : '';
+        }
+        function toggleMemoDone(cid, mid) {
+            const c = scheduleData.find(x => x.id === cid), m = c && c.memos.find(x => x.id === mid);
+            if (!m) return;
+            m.done = !m.done;
+            saveScheduleToStorage();
+            updateTick(true);
+            showToast(m.done ? 'ทำการบ้านเสร็จแล้ว 🎉' : 'ยกเลิกสถานะเสร็จแล้ว', 'success');
+        }
+
+        // ---------- grading ----------
+        function gradeFromScore(pct, cut) { for (const g of GRADE_ORDER) if (pct >= cut[g]) return g; return 'F'; }
+        function gradeColor(g) { return g === 'A' ? '#34d399' : g[0] === 'B' ? '#38bdf8' : g[0] === 'C' ? '#fbbf24' : g[0] === 'D' ? '#fb923c' : '#f87171'; }
+        function computeGrading(gr) {
+            if (!gr || !gr.components.length) return null;
+            const comps = gr.components, totalW = comps.reduce((a, c) => a + c.weight, 0);
+            const graded = comps.filter(c => c.score !== '');
+            const gW = graded.reduce((a, c) => a + c.weight, 0), earned = graded.reduce((a, c) => a + c.score, 0);
+            const r = { totalW, gW, earned, remainingW: totalW - gW, projected: null, grade: null, next: null, need: null, cutoffs: gr.cutoffs };
+            if (!graded.length || gW <= 0) return r;
+            r.rate = earned / gW * 100;
+            r.projected = r.rate;                                   // keep the same rate on the remaining parts
+            r.grade = gradeFromScore(r.projected, gr.cutoffs);
+            const idx = GRADE_ORDER.indexOf(r.grade);
+            r.next = r.grade === 'A' ? null : (idx === -1 ? 'D' : GRADE_ORDER[idx - 1]);
+            if (r.next && r.remainingW > 1e-9) r.need = ((gr.cutoffs[r.next] - earned / totalW * 100) / (r.remainingW / totalW * 100)) * 100;
+            return r;
+        }
+        function projectionHTML(pr) {
+            if (!pr) return '<p class="text-xs text-slate-400">ยังไม่ได้ตั้งส่วนประกอบคะแนน — กดเพื่อตั้งค่า</p>';
+            if (pr.projected === null) return '<p class="text-xs text-slate-400">ยังไม่มีคะแนนที่ทราบ — ใส่คะแนนอย่างน้อย 1 ส่วนเพื่อให้ระบบคาดการณ์</p>';
+            const done = pr.remainingW <= 1e-9;
+            let h = `<p class="text-xs text-slate-300 leading-relaxed">ตอนนี้ได้ <b class="text-white">${fmtNum(pr.earned)}/${fmtNum(pr.gW)}</b> (${fmtNum(pr.rate)}%) ${done ? `→ <b class="text-white">สรุปผล ${fmtNum(pr.projected)}/100</b>` : `→ ถ้าคงระดับนี้ จะได้ประมาณ <b class="text-white">${fmtNum(pr.projected)}/100</b>`} = เกรด <b style="color:${gradeColor(pr.grade)}">${pr.grade}</b></p>`;
+            if (!done && pr.next && pr.need !== null) {
+                h += pr.need > 100
+                    ? `<p class="text-[11px] text-slate-500 mt-1">อยากได้ ${pr.next} จะเป็นไปไม่ได้แล้วตามเกณฑ์นี้ (ต้อง ${fmtNum(pr.need)}% ของส่วนที่เหลือ)</p>`
+                    : `<p class="text-[11px] text-sky-300 mt-1">💡 อยากได้ <b>${pr.next}</b> ต้องทำส่วนที่เหลือเฉลี่ยให้ได้ ≥ <b>${fmtNum(Math.max(pr.need, 0))}%</b></p>`;
+            }
+            return h;
+        }
+        function gradeBarHTML(pr) {
+            if (!pr || !pr.totalW) return '';
+            const e = pr.earned / pr.totalW * 100, l = (pr.gW - pr.earned) / pr.totalW * 100, rest = 100 - e - l;
+            return `<div class="h-2.5 rounded-full overflow-hidden flex bg-slate-800 border border-slate-700" title="ได้แล้ว / เสียไป / ยังไม่ทราบ">
+                <div style="width:${e}%;background:#34d399"></div><div style="width:${l}%;background:#7f1d1d"></div><div style="width:${rest}%;background:repeating-linear-gradient(45deg,#334155,#334155 4px,#1e293b 4px,#1e293b 8px)"></div></div>
+                <div class="flex justify-between text-[9px] text-slate-500 mt-1"><span><span class="text-emerald-400">■</span> ได้แล้ว ${fmtNum(e)}%</span><span><span class="text-rose-900">■</span> เสียไป ${fmtNum(l)}%</span><span>▨ ยังไม่ทราบ ${fmtNum(Math.max(rest, 0))}%</span></div>`;
+        }
+        function renderGradePage() {
+            const box = document.getElementById('grade-page-body');
+            if (!scheduleData.length) { box.innerHTML = '<div class="py-12 text-center text-sm text-slate-400">ยังไม่มีรายวิชา — เพิ่มวิชาและหน่วยกิตก่อน แล้วกลับมาใส่คะแนนที่นี่ได้เลย</div>'; return; }
+            const rows = scheduleData.map(c => ({ c, pr: computeGrading(c.grading) }));
+            const counted = rows.filter(r => r.c.credit && r.pr && r.pr.grade);
+            const sumC = counted.reduce((a, r) => a + r.c.credit, 0);
+            const gpa = sumC ? counted.reduce((a, r) => a + GRADE_POINTS[r.pr.grade] * r.c.credit, 0) / sumC : null;
+            const totalCredits = scheduleData.reduce((a, c) => a + (c.credit || 0), 0);
+            const skipped = scheduleData.length - counted.length;
+            const summary = `<div class="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div><div class="text-xs text-slate-400">เกรดเฉลี่ยคาดการณ์เทอมนี้</div>
+                    <div class="text-4xl font-extrabold ${gpa === null ? 'text-slate-600' : 'text-emerald-300'}">${gpa === null ? '—' : gpa.toFixed(2)}<span class="text-sm text-slate-500 font-normal"> / 4.00</span></div></div>
+                <div class="text-xs text-slate-300 space-y-1">
+                    <div>หน่วยกิตรวม <b class="text-amber-300">${totalCredits}</b> • นับใน GPA <b>${counted.length}</b> วิชา (${sumC} หน่วยกิต)</div>
+                    ${skipped ? `<div class="text-amber-300">ยังไม่นับ ${skipped} วิชา (ยังไม่มีหน่วยกิตหรือคะแนน)</div>` : ''}
+                    <div class="text-[10px] text-slate-500">คำนวณ = Σ(เกรด × หน่วยกิต) ÷ Σหน่วยกิต</div></div></div>`;
+            const cards = rows.map(({ c, pr }) => {
+                const col = getColorObj(c.colorId).hex;
+                const badge = pr && pr.grade ? `<div class="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-extrabold shrink-0" style="color:${gradeColor(pr.grade)};background:${hexToRgba(gradeColor(pr.grade), 0.15)};border:1px solid ${hexToRgba(gradeColor(pr.grade), 0.5)}">${pr.grade}</div>` : `<div class="w-14 h-14 rounded-2xl flex items-center justify-center text-xl text-slate-600 bg-slate-900 border border-slate-700 shrink-0">?</div>`;
+                return `<div onclick="openGradeModal('${c.id}')" class="cursor-pointer rounded-2xl p-4 bg-slate-900/70 border border-slate-700/70 hover:border-slate-500 transition-all space-y-2.5" style="border-left:5px solid ${col}">
+                    <div class="flex items-start gap-3">${badge}
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                ${c.code ? `<span class="font-mono text-xs font-bold" style="color:${col}">${escapeHTML(c.code)}</span>` : ''}
+                                <h4 class="font-bold text-sm text-white">${escapeHTML(c.name)}</h4>
+                                ${secLabel(c.section) ? `<span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 border border-slate-600 text-slate-200">${escapeHTML(secLabel(c.section))}</span>` : ''}
+                            </div>
+                            <div class="mt-1">${c.credit ? `<span class="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300">${c.credit} หน่วยกิต</span>` : '<span class="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-600 text-amber-300">ยังไม่ใส่หน่วยกิต (แก้ได้ที่ฟอร์มวิชา)</span>'}</div>
+                        </div>
+                        <span class="text-xs text-slate-500 shrink-0"><i class="fa-solid fa-pen-to-square"></i></span>
+                    </div>
+                    ${pr ? gradeBarHTML(pr) : ''}${projectionHTML(pr)}</div>`;
+            }).join('');
+            box.innerHTML = summary + `<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${cards}</div>`;
+        }
+
+        // ---------- grade modal ----------
+        function openGradeModal(cid) {
+            const c = scheduleData.find(x => x.id === cid);
+            if (!c) return;
+            gradeModalCourseId = cid;
+            const g = sanitizeGrading(c.grading);
+            tempGrading = { components: g.components.map(x => ({ ...x })), cutoffs: { ...g.cutoffs } };
+            document.getElementById('grade-modal-title').innerText = `${c.code ? c.code + ' ' : ''}${c.name} — คะแนนและเกณฑ์เกรด`;
+            renderGradeModal();
+            const m = document.getElementById('grade-modal');
+            m.classList.remove('hidden'); m.classList.add('flex');
+        }
+        function closeGradeModal() { const m = document.getElementById('grade-modal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+        function addGradeComp(name) {
+            tempGrading.components.push({ id: newId('g'), name: name || 'ส่วนคะแนน', weight: '', score: '' });
+            renderGradeModal();
+        }
+        function removeGradeComp(i) { tempGrading.components.splice(i, 1); renderGradeModal(); }
+        function setGC(i, f, v) { tempGrading.components[i][f] = v; refreshGradePreview(); }
+        function setCutoff(k, v) { tempGrading.cutoffs[k] = v; refreshGradePreview(); }
+        function refreshGradePreview() {
+            const g = sanitizeGrading({ components: tempGrading.components, cutoffs: tempGrading.cutoffs });
+            const tot = tempGrading.components.reduce((a, c) => a + (Number(c.weight) > 0 ? Number(c.weight) : 0), 0);
+            const t = document.getElementById('gm-total');
+            if (t) t.innerHTML = `น้ำหนักรวม <b class="${Math.abs(tot - 100) < 1e-9 ? 'text-emerald-300' : tot > 100 ? 'text-rose-400' : 'text-amber-300'}">${fmtNum(tot)}%</b> ${Math.abs(tot - 100) < 1e-9 ? '✓' : tot > 100 ? '(เกิน 100!)' : '(ยังไม่ครบ 100)'}`;
+            tempGrading.components.forEach((c, i) => { const el = document.getElementById('gm-max-' + i); if (el) el.innerText = '/ ' + (Number(c.weight) > 0 ? fmtNum(Number(c.weight)) : '—'); });
+            const pv = document.getElementById('gm-preview');
+            if (pv) { const pr = computeGrading(g); pv.innerHTML = (pr ? gradeBarHTML(pr) : '') + `<div class="mt-2">${projectionHTML(pr)}</div>`; }
+        }
+        function renderGradeModal() {
+            const comps = tempGrading.components;
+            const rows = comps.length ? `<div class="grid grid-cols-12 gap-2 text-[10px] text-slate-500 px-1"><span class="col-span-5">ส่วนคะแนน</span><span class="col-span-3">น้ำหนัก (%)</span><span class="col-span-3">คะแนนที่ได้</span></div>` + comps.map((c, i) => `
+                <div class="grid grid-cols-12 gap-2 items-center">
+                    <input type="text" value="${escapeHTML(c.name)}" maxlength="40" oninput="setGC(${i},'name',this.value)" class="col-span-5 bg-slate-800 border border-slate-600 focus:border-emerald-400 rounded-lg px-2.5 py-2 text-xs text-white outline-none">
+                    <input type="number" inputmode="decimal" min="0" max="100" step="any" value="${c.weight}" placeholder="50" oninput="setGC(${i},'weight',this.value)" class="col-span-3 bg-slate-800 border border-slate-600 focus:border-emerald-400 rounded-lg px-2 py-2 text-xs text-white font-mono outline-none">
+                    <div class="col-span-3 flex items-center gap-1"><input type="number" inputmode="decimal" min="0" step="any" value="${c.score}" placeholder="ว่าง" oninput="setGC(${i},'score',this.value)" class="w-full min-w-0 bg-slate-800 border border-slate-600 focus:border-emerald-400 rounded-lg px-2 py-2 text-xs text-white font-mono outline-none"><span id="gm-max-${i}" class="text-[10px] text-slate-500 shrink-0"></span></div>
+                    <button type="button" onclick="removeGradeComp(${i})" class="col-span-1 h-8 rounded-md text-rose-400 hover:bg-rose-950/60"><i class="fa-solid fa-xmark"></i></button>
+                </div>`).join('') : '<div class="text-xs text-slate-500 text-center py-3">ยังไม่มีส่วนคะแนน — กดปุ่มด้านล่างเพื่อเพิ่ม</div>';
+            const presets = GRADE_PRESETS.map(n => `<button type="button" onclick="addGradeComp('${n}')" class="px-3 py-1.5 rounded-full text-[11px] bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200">＋ ${n}</button>`).join('');
+            const cut = GRADE_ORDER.map(k => `<label class="block"><span class="text-[10px] font-bold" style="color:${gradeColor(k)}">${k} ≥</span>
+                <input type="number" inputmode="decimal" min="0" max="100" step="any" value="${tempGrading.cutoffs[k]}" oninput="setCutoff('${k}', this.value)" class="w-full mt-0.5 bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-white font-mono outline-none"></label>`).join('');
+            document.getElementById('grade-modal-body').innerHTML = `
+                <p class="text-[11px] text-slate-400 leading-relaxed">ใส่น้ำหนักของแต่ละส่วน (รวม 100%) และ<strong class="text-slate-200">คะแนนที่ได้จริง</strong> เช่น Midterm น้ำหนัก 50 ได้ 30 — ส่วนที่ยังไม่สอบให้เว้นว่างไว้ ระบบจะคาดการณ์ว่าถ้าคงระดับเดิมจะได้เท่าไหร่</p>
+                <div class="space-y-2">${rows}</div>
+                <div class="flex flex-wrap gap-1.5">${presets}<button type="button" onclick="addGradeComp('')" class="px-3 py-1.5 rounded-full text-[11px] bg-emerald-500/15 border border-emerald-500/40 text-emerald-300">＋ กำหนดเอง</button></div>
+                <div id="gm-total" class="text-xs text-slate-300"></div>
+                <div class="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3"><div class="text-[11px] font-bold text-emerald-300 mb-2">🔮 คาดการณ์</div><div id="gm-preview"></div></div>
+                <details class="rounded-xl border border-slate-700 bg-slate-800/50">
+                    <summary class="cursor-pointer select-none px-3 py-2.5 text-xs font-semibold text-slate-200">⚙ เกณฑ์ตัดเกรด (คะแนนขั้นต่ำ) — ค่าเริ่มต้น A=80, B+=75 …</summary>
+                    <div class="p-3 grid grid-cols-4 sm:grid-cols-7 gap-2">${cut}</div>
+                    <p class="px-3 pb-3 text-[10px] text-slate-500">ต่ำกว่าเกณฑ์ D = F • เกรดเป็นตัวเลข: A=4, B+=3.5, B=3, C+=2.5, C=2, D+=1.5, D=1, F=0</p>
+                </details>`;
+            refreshGradePreview();
+        }
+        function saveGradeModal() {
+            const c = scheduleData.find(x => x.id === gradeModalCourseId);
+            if (!c) return;
+            let tot = 0;
+            for (const x of tempGrading.components) {
+                const w = Number(x.weight);
+                if (!(w > 0 && w <= 100)) { showToast(`น้ำหนักของ "${x.name || 'ส่วนคะแนน'}" ต้องอยู่ระหว่าง 0–100`, 'error'); return; }
+                if (x.score !== '' && (!Number.isFinite(Number(x.score)) || Number(x.score) < 0 || Number(x.score) > w)) { showToast(`คะแนนของ "${x.name || 'ส่วนคะแนน'}" ต้องอยู่ระหว่าง 0 ถึง ${fmtNum(w)}`, 'error'); return; }
+                tot += w;
+            }
+            if (tot > 100 + 1e-9) { showToast('น้ำหนักรวมเกิน 100% กรุณาปรับ', 'error'); return; }
+            const vals = GRADE_ORDER.map(k => Number(tempGrading.cutoffs[k]));
+            if (!vals.every((v, i) => Number.isFinite(v) && v >= 0 && v <= 100 && (i === 0 || v < vals[i - 1]))) { showToast('เกณฑ์ตัดเกรดต้องเรียงจากมากไปน้อย (A > B+ > B > … > D) และอยู่ใน 0–100', 'error'); return; }
+            c.grading = sanitizeGrading(tempGrading);
+            saveScheduleToStorage();
+            closeGradeModal();
+            updateTick(true);
+            showToast('บันทึกคะแนนและเกณฑ์เกรดแล้ว', 'success');
+        }
+    
+        // =====================================================
+        // v6: MEMO PANEL (separate) + WEEKLY SUMMARY
+        // =====================================================
+        let memoForm = { courseId: '', type: 'cancel', text: '', date: '', scope: 'week' };
+        let memoPanelOpen = true;
+        let lastMemoPanelDate = '';
+
+        function courseDays(c) {
+            const d = new Set([Number(c.day)]);
+            if (c.specialType === 'multi') (c.extraSessions || []).forEach(x => d.add(Number(x.day)));
+            return d;
+        }
+        function upcomingClassDates(c, n = 5) {
+            const days = courseDays(c), base = parseISODateLocal(getCurrentContextTime().isoDate), out = [];
+            for (let i = 0; i < 70 && out.length < n; i++) { const d = addDays(base, i); if (days.has(d.getDay())) out.push(formatISODate(d)); }
+            return out;
+        }
+        function memoDefaultDate() {
+            const c = scheduleData.find(x => x.id === memoForm.courseId);
+            if (memoForm.type === 'cancel') return c ? (upcomingClassDates(c, 1)[0] || '') : '';
+            if (memoForm.type === 'notice') return getCurrentContextTime().isoDate;
+            return '';
+        }
+        function memoSetCourse(id) { memoForm.courseId = id; if (memoForm.type === 'cancel') memoForm.date = memoDefaultDate(); renderMemoPanel(); }
+        function memoSetType(t) { memoForm.type = t; memoForm.date = memoDefaultDate(); renderMemoPanel(); }
+        function memoSetScope(sc) { memoForm.scope = sc; if (sc === 'week' && !memoForm.date) memoForm.date = getCurrentContextTime().isoDate; renderMemoPanel(); }
+        function memoSetDate(v) { memoForm.date = v; renderMemoPanel(); }
+
+        function addMemo() {
+            const f = memoForm, c = scheduleData.find(x => x.id === f.courseId), text = f.text.trim();
+            if (!c) { showToast('กรุณาเลือกวิชาที่จะ Memo', 'error'); return; }
+            if ((c.memos || []).length >= 60) { showToast('Memo ของวิชานี้ครบ 60 รายการแล้ว กรุณาลบรายการเก่า', 'error'); return; }
+            if (f.type === 'cancel') {
+                if (!f.date) { showToast('กรุณาเลือกวันที่งดเรียน', 'error'); return; }
+                const days = courseDays(c);
+                if (!days.has(parseISODateLocal(f.date).getDay())) { showToast('วันที่นี้ไม่ตรงกับวันเรียนของวิชานี้ (' + [...days].map(getDayName).join(', ') + ')', 'error'); return; }
+                if ((c.memos || []).some(m => m.type === 'cancel' && m.date === f.date)) { showToast('วิชานี้แจ้งหยุดวันดังกล่าวไว้แล้ว', 'error'); return; }
+            } else if (!text) { showToast('กรุณาพิมพ์ข้อความ Memo', 'error'); return; }
+            if (f.type === 'notice' && f.scope === 'week' && !f.date) { showToast('กรุณาเลือกวันที่ในสัปดาห์ที่ต้องการแจ้งเตือน', 'error'); return; }
+            c.memos = c.memos || [];
+            c.memos.push({ id: newId('m'), type: f.type, text: text || 'อาจารย์แจ้งหยุด', date: (f.type === 'notice' && f.scope === 'always') ? '' : f.date, scope: f.type === 'notice' ? f.scope : 'week', done: false });
+            saveScheduleToStorage();
+            memoForm.text = '';
+            if (f.type === 'cancel') memoForm.date = upcomingClassDates(c, 5).find(d => d > f.date) || memoDefaultDate();
+            updateTick(true);
+            showToast(`เพิ่ม Memo ${MEMO_TYPES[f.type].label}แล้ว`, 'success');
+        }
+        function deleteMemo(cid, mid) {
+            const c = scheduleData.find(x => x.id === cid);
+            if (!c) return;
+            c.memos = (c.memos || []).filter(m => m.id !== mid);
+            saveScheduleToStorage();
+            updateTick(true);
+            showToast('ลบ Memo แล้ว', 'info');
+        }
+
+        // Group memos by week: overdue homework -> this week -> future weeks -> homework w/o due date -> always-on notices
+        function buildMemoGroups(todayIso) {
+            const thisWk = weekStartIso(todayIso), nextWk = formatISODate(addDays(parseISODateLocal(thisWk), 7));
+            const groups = new Map();
+            const put = (key, item) => { if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); };
+            scheduleData.forEach(c => (c.memos || []).forEach(m => {
+                const it = { c, m };
+                if (m.type === 'cancel') { if (m.date && weekStartIso(m.date) >= thisWk) put('w:' + weekStartIso(m.date), it); }
+                else if (m.type === 'homework') {
+                    if (m.done) return;
+                    if (!m.date) put('nodate', it);
+                    else if (m.date < todayIso) put('overdue', it);
+                    else put('w:' + weekStartIso(m.date), it);
+                } else if (m.type === 'notice') {
+                    if (m.scope === 'always') put('always', it);
+                    else if (m.date && weekStartIso(m.date) >= thisWk) put('w:' + weekStartIso(m.date), it);
+                }
+            }));
+            const weekKeys = [...groups.keys()].filter(k => k.startsWith('w:')).sort();
+            const order = ['overdue', ...weekKeys, 'nodate', 'always'].filter(k => groups.has(k));
+            return order.map(k => {
+                const items = groups.get(k).sort((a, b) => ((a.m.date || '9999') + a.m.type).localeCompare((b.m.date || '9999') + b.m.type));
+                let title, sub = '';
+                if (k === 'overdue') title = '⚠ การบ้านเลยกำหนด';
+                else if (k === 'nodate') title = '📝 การบ้านที่ยังไม่มีกำหนดส่ง';
+                else if (k === 'always') title = '📌 แจ้งเตือนที่ติดตลอด';
+                else {
+                    const wk = k.slice(2);
+                    title = wk === thisWk ? 'สัปดาห์นี้' : wk === nextWk ? 'สัปดาห์หน้า' : 'สัปดาห์ที่ ' + formatThaiShortDate(wk);
+                    sub = `${formatThaiShortDate(wk)} – ${formatThaiShortDate(formatISODate(addDays(parseISODateLocal(wk), 6)))}`;
+                }
+                return { key: k, title, sub, items, isNow: k === 'w:' + thisWk };
+            });
+        }
+        function memoRowHTML({ c, m }, todayIso) {
+            const t = MEMO_TYPES[m.type], col = getColorObj(c.colorId).hex;
+            let when = '';
+            if (m.type === 'cancel') when = `งดเรียน${getDayName(parseISODateLocal(m.date).getDay())} ${formatThaiShortDate(m.date)}`;
+            else if (m.type === 'homework' && m.date) {
+                const late = m.date < todayIso;
+                when = `<span class="${late ? 'text-rose-400 font-bold' : m.date === todayIso ? 'text-amber-300 font-bold' : ''}">ส่ง ${formatThaiShortDate(m.date)}${late ? ' (เลยกำหนด)' : m.date === todayIso ? ' (วันนี้)' : ''}</span>`;
+            } else if (m.type === 'notice') when = m.scope === 'always' ? 'ติดตลอด' : 'เฉพาะสัปดาห์นี้';
+            return `<div class="flex items-center gap-2 bg-slate-900/60 border border-slate-700/60 rounded-xl px-3 py-2" style="border-left:4px solid ${t.color}">
+                <span class="text-base shrink-0">${t.icon}</span>
+                <div class="min-w-0 flex-1">
+                    <div class="text-xs"><span class="font-mono font-bold" style="color:${col}">${escapeHTML(courseLabel(c))}</span> <span class="text-slate-100">${escapeHTML(m.text || t.label)}</span></div>
+                    <div class="text-[10px] text-slate-400">${t.label}${when ? ' • ' + when : ''}</div>
+                </div>
+                ${m.type === 'homework' ? `<button type="button" onclick="toggleMemoDone('${c.id}','${m.id}')" class="shrink-0 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-semibold">ทำแล้ว ✓</button>` : ''}
+                <button type="button" onclick="deleteMemo('${c.id}','${m.id}')" title="ลบ Memo" class="shrink-0 w-7 h-7 rounded-md text-slate-500 hover:text-rose-400 hover:bg-rose-950/60"><i class="fa-solid fa-xmark"></i></button>
+            </div>`;
+        }
+        function renderMemoPanel(ctx) {
+            const box = document.getElementById('memo-panel');
+            if (!box) return;
+            ctx = ctx || getCurrentContextTime();
+            const f = memoForm;
+            if (!scheduleData.some(c => c.id === f.courseId)) { f.courseId = scheduleData.length ? scheduleData[0].id : ''; if (f.type === 'cancel') f.date = memoDefaultDate(); }
+            const groups = buildMemoGroups(ctx.isoDate);
+            const total = groups.reduce((a, g) => a + g.items.length, 0);
+
+            let body;
+            if (!scheduleData.length) {
+                body = '<div class="px-4 pb-4 text-xs text-slate-400">เพิ่มรายวิชาก่อน แล้วจะเลือกวิชาเพื่อ Memo ได้ที่นี่</div>';
+            } else {
+                const c = scheduleData.find(x => x.id === f.courseId);
+                const typeBtns = Object.keys(MEMO_TYPES).map(k => `<button type="button" onclick="memoSetType('${k}')" class="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all ${f.type === k ? 'text-slate-950' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500'}" style="${f.type === k ? `background:${MEMO_TYPES[k].color};border-color:${MEMO_TYPES[k].color}` : ''}">${MEMO_TYPES[k].icon} ${MEMO_TYPES[k].label}</button>`).join('');
+                const placeholder = f.type === 'cancel' ? 'เหตุผล เช่น อาจารย์ติดประชุม (ไม่ใส่ก็ได้)' : f.type === 'homework' ? 'เช่น แบบฝึกหัดบทที่ 5' : 'เช่น สอบย่อยสัปดาห์หน้า';
+                let dateArea = '';
+                if (f.type === 'cancel') {
+                    const chips = upcomingClassDates(c, 5).map(d => `<button type="button" onclick="memoSetDate('${d}')" class="px-2.5 py-1.5 rounded-lg text-[11px] border ${f.date === d ? 'bg-rose-500 border-rose-400 text-slate-950 font-bold' : 'bg-slate-800 border-slate-700 text-slate-300 hover:border-rose-400'}">${getDayName(parseISODateLocal(d).getDay()).replace('วัน', '')} ${formatThaiShortDate(d)}</button>`).join('');
+                    dateArea = `<div class="text-[11px] text-slate-400">เลือกวันที่งดเรียน (คาบถัดไปของวิชานี้)</div><div class="flex flex-wrap gap-1.5">${chips}</div>
+                        <div class="flex items-center gap-2"><span class="text-[11px] text-slate-500 shrink-0">หรือวันอื่น</span><input type="date" value="${f.date}" onchange="memoSetDate(this.value)" class="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none"></div>`;
+                } else if (f.type === 'homework') {
+                    dateArea = `<div class="flex items-center gap-2"><span class="text-[11px] text-slate-400 shrink-0">กำหนดส่ง (ไม่บังคับ)</span><input type="date" value="${f.date}" onchange="memoForm.date = this.value" class="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none"></div>`;
+                } else {
+                    dateArea = `<div class="flex gap-2">${[['week', 'เฉพาะสัปดาห์นั้น'], ['always', 'ติดตลอด']].map(([k, l]) => `<button type="button" onclick="memoSetScope('${k}')" class="flex-1 py-1.5 rounded-lg text-[11px] font-semibold border ${f.scope === k ? 'bg-amber-500 border-amber-400 text-slate-950' : 'bg-slate-800 border-slate-700 text-slate-300'}">${l}</button>`).join('')}</div>
+                        ${f.scope === 'week' ? `<div class="flex items-center gap-2"><span class="text-[11px] text-slate-400 shrink-0">สัปดาห์ของวันที่</span><input type="date" value="${f.date}" onchange="memoForm.date = this.value" class="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none"></div>` : ''}`;
+                }
+                const form = `<div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 space-y-2.5">
+                    <div class="text-xs font-bold text-slate-200">＋ เพิ่ม Memo</div>
+                    <select onchange="memoSetCourse(this.value)" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white outline-none">
+                        ${scheduleData.map(x => `<option value="${x.id}" ${x.id === f.courseId ? 'selected' : ''}>${escapeHTML((x.code ? x.code + ' ' : '') + x.name + (secLabel(x.section) ? ' • ' + secLabel(x.section) : ''))}</option>`).join('')}
+                    </select>
+                    <div class="flex gap-2">${typeBtns}</div>
+                    <input type="text" value="${escapeHTML(f.text)}" oninput="memoForm.text = this.value" maxlength="200" placeholder="${placeholder}" class="w-full bg-slate-800 border border-slate-600 focus:border-amber-400 rounded-lg px-3 py-2 text-xs text-white outline-none">
+                    ${dateArea}
+                    <button type="button" onclick="addMemo()" class="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold active:scale-95 transition-all">บันทึก Memo</button>
+                </div>`;
+                const summary = groups.length ? groups.map(g => {
+                    const counts = ['cancel', 'homework', 'notice'].map(t => { const n = g.items.filter(i => i.m.type === t).length; return n ? `<span class="text-[10px]" style="color:${MEMO_TYPES[t].color}">${MEMO_TYPES[t].icon}${n}</span>` : ''; }).join(' ');
+                    return `<div class="space-y-1.5">
+                        <div class="flex items-center gap-2 flex-wrap"><span class="text-xs font-bold ${g.isNow ? 'text-amber-300' : g.key === 'overdue' ? 'text-rose-400' : 'text-slate-200'}">${g.title}</span>${g.sub ? `<span class="text-[10px] text-slate-500">${g.sub}</span>` : ''}<span class="ml-auto flex gap-1.5">${counts}</span></div>
+                        ${g.items.map(i => memoRowHTML(i, ctx.isoDate)).join('')}</div>`;
+                }).join('') : '<div class="py-8 text-center text-xs text-slate-500">ยังไม่มี Memo — เลือกวิชาทางซ้ายแล้วเพิ่มได้เลย<br>(แจ้งหยุด • การบ้าน • แจ้งเตือน)</div>';
+                body = `<div class="px-4 pb-4 grid grid-cols-1 lg:grid-cols-5 gap-4">
+                    <div class="lg:col-span-2">${form}</div>
+                    <div class="lg:col-span-3 space-y-3 max-h-[30rem] overflow-y-auto custom-scrollbar pr-1">
+                        <div class="text-xs font-bold text-slate-300">🗓 สรุปรายสัปดาห์</div>${summary}</div></div>`;
+            }
+            box.innerHTML = `<details ${memoPanelOpen ? 'open' : ''} ontoggle="memoPanelOpen = this.open">
+                <summary class="cursor-pointer select-none px-4 py-3.5 text-sm sm:text-base font-bold text-white flex items-center gap-2">📌 Memo รายวิชา
+                    ${total ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-slate-950">${total}</span>` : ''}
+                    <span class="ml-auto text-[10px] font-normal text-slate-500">แจ้งหยุด • การบ้าน • แจ้งเตือน</span></summary>${body}</details>`;
+        }
+    
+        // =====================================================
+        // v7: WIDGET MODE  (open this file with ?widget=1)
+        // =====================================================
+        const WIDGET_PARAMS = new URLSearchParams(location.search);
+        const WIDGET_MODE = document.documentElement.classList.contains('widget-mode');
+
+        function widgetBaseUrl() { return location.href.split(/[?#]/)[0]; }
+        function copyWidgetLink() {
+            const url = widgetBaseUrl() + '?widget=1';
+            const done = () => showToast('คัดลอกลิงก์วิตเจ็ตแล้ว', 'success');
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done).catch(() => showToast(url, 'info'));
+            else showToast(url, 'info');
+        }
+
+        function wDur(sec) {
+            sec = Math.max(0, Math.floor(sec));
+            const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+            if (h > 0) return `${h} ชม.${m ? ' ' + m + ' น.' : ''}`;
+            if (m > 0) return `${m} น.`;
+            return `${sec} วิ`;
+        }
+        function wSessionsOn(iso) {
+            const d = parseISODateLocal(iso), day = d.getDay();
+            return (getExamWeekInfo(iso) ? getExamSessionsOnDate(iso) : getExpandedSessions(iso).filter(s => s.day === day && !s.isInactive))
+                .sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
+        }
+        function wCard(sess, label, color, extra) {
+            const col = getColorObj(sess.colorId).hex;
+            const sec = secLabel(sess.section);
+            return `<div class="wg-card" style="border-left:5px solid ${col};background:${hexToRgba(col, 0.16)}">
+                <div class="wg-label" style="color:${color}">${label}</div>
+                <div class="wg-title">${sess.code ? `<span style="color:${col};font-family:monospace">${escapeHTML(sess.code)}</span> ` : ''}${escapeHTML(sess.name)}${sec ? ` <span style="font-size:.7em;color:#94a3b8">${escapeHTML(sec)}</span>` : ''}</div>
+                <div class="wg-sub">📍 ${escapeHTML(sess.room || 'ไม่ระบุห้อง')} &nbsp;•&nbsp; ${sess.start}–${sess.end}</div>${extra || ''}</div>`;
+        }
+
+        function renderWidget() {
+            const root = document.getElementById('widget-root');
+            if (!root) return;
+            const ctx = getCurrentContextTime();
+            const nowSec = ctx.hours * 3600 + ctx.minutes * 60 + ctx.seconds;
+            const ew = getExamWeekInfo(ctx.isoDate);
+            const today = wSessionsOn(ctx.isoDate);
+            const cur = today.find(x => nowSec >= timeToMinutes(x.start) * 60 && nowSec < timeToMinutes(x.end) * 60);
+            let nextS = today.find(x => timeToMinutes(x.start) * 60 > nowSec), nextWhen = '';
+            if (nextS) nextWhen = `อีก ${wDur(timeToMinutes(nextS.start) * 60 - nowSec)}`;
+            else {
+                for (let i = 1; i <= 14 && !nextS; i++) {
+                    const iso = formatISODate(addDays(parseISODateLocal(ctx.isoDate), i)), l = wSessionsOn(iso);
+                    if (l.length) { nextS = l[0]; nextWhen = (i === 1 ? 'พรุ่งนี้' : getDayName(parseISODateLocal(iso).getDay()) + ' ' + formatThaiShortDate(iso)) + ' ' + l[0].start; }
+                }
+            }
+            const word = ew ? 'สอบ' : 'เรียน';
+            const pad = n => String(n).padStart(2, '0');
+            let html = `<div class="wg"><div class="wg-top"><span class="wg-clock">${pad(ctx.hours)}:${pad(ctx.minutes)}</span>
+                <span class="wg-date">${getDayName(ctx.day)} ${formatThaiShortDate(ctx.isoDate)}</span>
+                <span class="wg-badge" style="background:${ew ? '#fb923c' : '#fbbf24'};color:#0f172a">${ew ? EXAM_TYPES[ew.type].short : 'ตารางเรียน'}</span></div>`;
+
+            if (!scheduleData.length) {
+                html += '<div class="wg-card"><div class="wg-title">ยังไม่มีรายวิชา</div><div class="wg-sub">เปิดแอปเพื่อเพิ่มตารางเรียน</div></div>';
+            } else {
+                if (cur) {
+                    const s0 = timeToMinutes(cur.start) * 60, e0 = timeToMinutes(cur.end) * 60;
+                    html += wCard(cur, `🟢 กำลัง${word} • เหลือ ${wDur(e0 - nowSec)}`, '#34d399', `<div class="wg-bar"><div style="width:${Math.min(100, (nowSec - s0) / (e0 - s0) * 100)}%"></div></div>`);
+                } else if (!today.length) {
+                    html += `<div class="wg-card"><div class="wg-title">${ew ? 'วันนี้ไม่มีสอบ' : 'วันนี้ไม่มีเรียน'} 🎉</div></div>`;
+                } else if (!nextS || nextWhen.indexOf('อีก') !== 0) {
+                    html += `<div class="wg-card"><div class="wg-title">${word}ครบทุกวิชาของวันนี้แล้ว 🎉</div></div>`;
+                }
+                if (nextS) html += wCard(nextS, `⏭ ${ew || !cur ? 'ถัดไป' : 'คาบถัดไป'} • ${nextWhen}`, '#fbbf24');
+                else if (cur) html += '<div class="wg-card"><div class="wg-sub">ไม่มีคาบถัดไป</div></div>';
+
+                // chips: cancelled today / homework due / overdue
+                const chips = [];
+                getExpandedSessions(ctx.isoDate).filter(x => x.day === ctx.day && x.cancelNote !== undefined && !ew).forEach(x => chips.push(`🚫 งดเรียน ${escapeHTML(courseLabel({ code: x.code, name: x.name }))}`));
+                let due = 0, late = 0;
+                scheduleData.forEach(c => (c.memos || []).forEach(m => { if (m.type === 'homework' && !m.done && m.date) { if (m.date === ctx.isoDate) due++; else if (m.date < ctx.isoDate) late++; } }));
+                if (due) chips.push(`📝 การบ้านส่งวันนี้ ${due}`);
+                if (late) chips.push(`⚠ เลยกำหนด ${late}`);
+                if (chips.length) html += `<div style="display:flex;flex-wrap:wrap;gap:5px">${chips.map(c => `<span class="wg-chip">${c}</span>`).join('')}</div>`;
+            }
+            html += `<a class="wg-link" href="${widgetBaseUrl()}" target="_top">เปิดแอปเต็ม ›</a></div>`;
+            if (root.dataset.last !== html) { root.innerHTML = html; root.dataset.last = html; }
+        }
+
+        function startWidgetMode() {
+            if (WIDGET_PARAMS.get('bg') === 'transparent') document.documentElement.classList.add('wg-transparent');
+            loadAllFromStorage();
+            renderWidget();
+            setInterval(renderWidget, 1000);
+            setInterval(() => { loadAllFromStorage(); }, 30000);
+            window.addEventListener('storage', () => { loadAllFromStorage(); renderWidget(); });
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadAllFromStorage(); renderWidget(); } });
+        }
+    
+        // =====================================================
+        // VERSION & PATCH NOTES
+        // =====================================================
+        const APP_VERSION = '3.2.1';
+        const CHANGELOG = [
+            { v: '3.2.1', date: '19 พ.ย. 2569', title: 'เลขเวอร์ชันและ Patch notes', items: ['แสดงเลขเวอร์ชันที่ท้ายหน้าเว็บ และปุ่มดู Patch notes', 'ไฟล์ส่งออกบันทึกเลขเวอร์ชันของแอปไว้ด้วย'] },
+            { v: '3.2.0', title: 'โหมดวิตเจ็ต', items: ['เปิดด้วย ?widget=1 แสดงคาบที่กำลังเรียน คาบถัดไป ห้อง และเวลานับถอยหลัง (ในสัปดาห์สอบแสดงวิชาสอบ)', 'ป้าย 🚫 งดเรียน / 📝 การบ้านวันนี้ / ⚠ เลยกำหนด', 'รองรับพื้นหลังโปร่งใส ?bg=transparent และปุ่มคัดลอกลิงก์วิตเจ็ต'] },
+            { v: '3.1.0', title: 'Memo แยกเป็นแผงของตัวเอง', items: ['ย้าย Memo ออกจากฟอร์มวิชา ไปอยู่เหนือส่วนจัดการตารางเรียน เลือกวิชาแล้วเพิ่ม Memo ได้ทันที', 'สรุป Memo รายสัปดาห์: เลยกำหนด → สัปดาห์นี้ → สัปดาห์หน้า → ถัดไป → ไม่มีกำหนด → ติดตลอด', 'แจ้งหยุดเลือกจากวันที่คาบถัดไปของวิชานั้นได้เลย'] },
+            { v: '3.0.0', title: 'หน่วยกิต / Memo / เกรดคาดการณ์', items: ['หน่วยกิต 1–6 และหน่วยกิตรวมใต้ตารางประจำสัปดาห์', 'Memo 3 แบบ: แจ้งหยุด (คาบเป็นสีเทา) การบ้าน แจ้งเตือน (เฉพาะสัปดาห์/ติดตลอด)', 'แท็บเกรดใหม่: น้ำหนักคะแนน เกณฑ์ตัดเกรดแก้ได้ คาดการณ์เกรด และ GPA = Σ(เกรด×หน่วยกิต) ÷ Σหน่วยกิต'] },
+            { v: '2.2.0', title: 'ตอนเรียน / Sec', items: ['เพิ่มช่อง Sec แสดงที่มุมขวาบนของตารางสัปดาห์ ในหน้ารายวัน การ์ดกำลังเรียน และตารางสอบ', 'แก้บัค id วิชาซ้ำตอนนำเข้าไฟล์ ทำให้แก้ไข/ลบผิดวิชา'] },
+            { v: '2.1.0', title: 'ตารางสัปดาห์วางตามเวลาจริง', items: ['แก้บัคคาบที่ลงท้าย :30 ซ้อนกัน (เช่น 08:00–09:30 กับ 09:30–11:00)', 'กล่องวิชากว้างตามความยาวคาบ คาบที่ซ้อนกันจริงแยกเป็นแถว'] },
+            { v: '2.0.2', title: 'แถบปุ่มจัดการบนมือถือ', items: ['แถวบน: เพิ่มวิชา / ตั้งช่วงสอบ / จัดการสี  แถวล่าง: ส่งออก / นำเข้า / ล้างข้อมูล แสดงข้อความครบ'] },
+            { v: '2.0.1', title: 'แก้ไอคอนและการบันทึกฟอร์ม', items: ['ไอคอนไม่แสดง (กลายเป็นสี่เหลี่ยม) และบันทึกช่วงสอบไม่ได้ในบางสภาพแวดล้อม', 'ปุ่มบันทึกทำงานจากการคลิกโดยตรง และแสดงข้อความเมื่อเกิด error'] },
+            { v: '2.0.0', title: 'ตารางสอบและระบบกันซ้อน', items: ['ตั้งช่วงสอบ Midterm/Final สัปดาห์สอบไม่มีตารางเรียน', 'ใส่วัน เวลา ห้องสอบในฟอร์มวิชา (ไม่บังคับ) แท็บตารางสอบ และเด้งเข้าหน้าสอบอัตโนมัติ', 'กันเวลาเรียน/สอบซ้อนกันตอนบันทึก', 'แก้ Lab: เลยสัปดาห์สุดท้ายเป็นสีเทาและไม่โชว์ในการ์ดด้านบน', 'แก้ช่องโหว่ XSS ตอนนำเข้า JSON และข้อมูล Lab ผิดในมุมมองสัปดาห์'] },
+            { v: '1.0.0', title: 'เวอร์ชันตั้งต้น', items: ['ตารางเรียนรายวัน/รายสัปดาห์ วิชา Lab รายสัปดาห์ วิชาหลายรอบ หมวดสี จำลองวันเวลา นำเข้า/ส่งออก'] }
+        ];
+        function openPatchNotes() {
+            document.getElementById('patch-body').innerHTML = CHANGELOG.map((c, i) => `
+                <div class="rounded-xl border ${i === 0 ? 'border-amber-500/50 bg-amber-950/10' : 'border-slate-700 bg-slate-800/50'} p-3.5 space-y-1.5">
+                    <div class="flex items-center gap-2 flex-wrap"><span class="font-mono font-bold ${i === 0 ? 'text-amber-300' : 'text-slate-200'}">v${c.v}</span>
+                        ${i === 0 ? '<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-bold">ล่าสุด</span>' : ''}
+                        <span class="text-xs text-slate-300 font-semibold">${escapeHTML(c.title)}</span>${c.date ? `<span class="ml-auto text-[10px] text-slate-500">${c.date}</span>` : ''}</div>
+                    <ul class="list-disc pl-5 space-y-0.5 text-xs text-slate-300">${c.items.map(t => `<li>${escapeHTML(t)}</li>`).join('')}</ul></div>`).join('')
+                + '<p class="text-[10px] text-slate-500">หมายเหตุ: เลขเวอร์ชันก่อน 3.2.1 กำหนดย้อนหลังตามลำดับการพัฒนา</p>';
+            const m = document.getElementById('patch-modal');
+            m.classList.remove('hidden'); m.classList.add('flex');
+        }
+        function closePatchNotes() { const m = document.getElementById('patch-modal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+        (function () { const b = document.getElementById('app-version-btn'); if (b) b.textContent = 'v' + APP_VERSION + ' • Patch notes'; })();
     </script>
 </body>
 </html>
